@@ -1,0 +1,18 @@
+{
+    "versionLabel": "0.2",
+    "appKeys": {},
+    "versionCode": 1,
+    "watchapp": {
+        "watchface": false
+    },
+    "longName": "3D FPS Demo v0.2b",
+    "shortName": "3D FPS",
+    "companyName": "robisodd",
+    "capabilities": [
+        ""
+    ],
+    "resources": {
+        "media": []
+    },
+    "uuid": "529a7262-efdb-48d4-80d4-da14963099b9"
+}
