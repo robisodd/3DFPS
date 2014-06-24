@@ -99,7 +99,8 @@ void GenerateMap() {
 
 int8_t getmap(int32_t x, int32_t y) {
   if (x<0 || x>=(mapsize*1000) || y<0 || y>=(mapsize*1000)) return -1;
-  return map[(((y - y%1000) * mapsize)/1000) + ((x - x%1000)/1000)];
+  return map[(((y - y%1000)/1000) * mapsize) + ((x - x%1000)/1000)];
+  return map[((y/1000) * mapsize) + (x/1000)];  // This might work due to integer math dropping remainder
 }
 
 /*
@@ -132,7 +133,7 @@ static void main_loop(void *data) {
 
 static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
 	RayVar stepX, stepY, ray;
-  int32_t coltop, colbot, angle, sin, cos, Xdx, Xdy, Ydx, Ydy, z;
+  int32_t coltop, colbot, angle, sin, cos, Xdx=0, Xdy=0, Ydx=0, Ydy=0, z;
   
   time_t sec1, sec2; uint16_t ms1, ms2; int32_t dt; // time snapshot variables
   time_ms(&sec1, &ms1);  //1st Time Snapshot
@@ -162,10 +163,8 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
       else {
 	      Xdx = cos > 0 ? floor_int(ray.x + 1000) - ray.x : ceil_int(ray.x - 1000) - ray.x;
         Xdy = (Xdx * sin)/cos;
-	      stepX.x = ray.x + Xdx;
-        stepX.y = ray.y + Xdy;
         stepX.length = Xdx * Xdx + Xdy * Xdy;
-        if(stepX.length<0) stepX.length = 2147483647;
+        if(stepX.length<0) stepX.length = 2147483647;  // Overflow detected so just make length the max
       }
 
       // Calculate distance to next Y gridline in the ray's direction
@@ -173,19 +172,21 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
 	    else {
         Ydy = sin > 0 ? floor_int(ray.y + 1000) - ray.y : ceil_int(ray.y - 1000) - ray.y;
 	      Ydx = (Ydy * cos)/sin;
-	      stepY.x = ray.x + Ydx;
-        stepY.y = ray.y + Ydy;
         stepY.length = Ydx * Ydx + Ydy * Ydy;
-        if(stepY.length<0) stepY.length = 2147483647;
+        if(stepY.length<0) stepY.length = 2147483647;  // Overflow detected so just make length the max
       }
 
       // move ray to next step whichever is closer
 	    if(stepX.length < stepY.length) {
+        stepX.x = ray.x + Xdx;
+        stepX.y = ray.y + Xdy;
 	      stepX.hit = getmap(floor_int(stepX.x - (cos<0?1:0)), floor_int(stepX.y));
         stepX.dist = ray.dist + sqrt_int(stepX.length);
 	      stepX.offset = stepX.y;
         ray = stepX;
       } else {
+        stepY.x = ray.x + Ydx;
+        stepY.y = ray.y + Ydy;
         stepY.hit = getmap(floor_int(stepY.x),floor_int(stepY.y - (sin<0?1:0)));
         stepY.dist = ray.dist + sqrt_int(stepY.length);
 	      stepY.offset = stepY.x;
