@@ -24,6 +24,8 @@
 #define mapsize 20             // Map is 20x20 squres, or whatever number is here
 #define range 10000            // Distance player can see
 #define idclip false           // Walk thru walls
+#define view_border true       // Draw border around viewing window
+#define draw_textbox true      // Draw textbox or not
   
 //----------------------------------//
 // Viewing Window Size and Position //
@@ -67,7 +69,6 @@ typedef struct RayVar {
   int32_t x;                  // Origin X
   int32_t y;                  // Origin Y
   int32_t dist;               // Distance
-  int32_t length;             // Length
   int8_t hit;                 // Hit (What on the map it hit)
   int32_t offset;             // Offset (used for wall texture)
 } RayVar;
@@ -121,28 +122,32 @@ void walk(int32_t distance) {
 }
 
 static void main_loop(void *data) {
-  AccelData accel = (AccelData){.x=0, .y=0, .z=0};
-  accel_service_peek(&accel);                      // Read Accelerometer
-  player.facing = player.facing + (10 * accel.x);  // Spin based on accel.x
-  walk((int32_t)accel.y);                     // Walk based on accel.y
-  //walk(accel.y * 1000 / 1000);  // Technically above line is this
-  layer_mark_dirty(graphics_layer);  // Tell pebble to draw when it's ready
+  AccelData accel=(AccelData){.x=0, .y=0, .z=0}; // All three are int16_t
+  accel_service_peek(&accel);                    // Read Accelerometer
+  player.facing += (10 * accel.x);               // Spin based on accel.x
+  walk((int32_t)accel.y);                        // Walk based on accel.y
+  //walk(accel.y * 1000 / 1000);        // Technically above line is this
+  layer_mark_dirty(graphics_layer);              // Tell pebble to draw when it's ready
 }
 
 // ------------------------------------------------------------------------ //
 
 static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
-	RayVar stepX, stepY, ray;
-  int32_t coltop, colbot, angle, sin, cos, Xdx=0, Xdy=0, Ydx=0, Ydy=0, z;
+	RayVar ray;
+  int32_t coltop, colbot, angle, sin, cos;
+  int32_t Xdx=0, Xdy=0, Ydx=0, Ydy=0, z, Xlen, Ylen;
+  //int32_t looper = 0;
+  z=0; //delete this
   
   time_t sec1, sec2; uint16_t ms1, ms2; int32_t dt; // time snapshot variables
+  //time_t sec3; uint16_t ms3; int32_t dt2; // time snapshot variables
   time_ms(&sec1, &ms1);  //1st Time Snapshot
 
   // Draw black background over whole canvas
    // Not needed.  Maybe draw some sort of other background?
   
   // Draw Box around view (not needed if fullscreen, i.e. view_w=144 and view_h=168)
-  if(true) {graphics_context_set_stroke_color(ctx, 1); graphics_draw_rect(ctx, GRect(view_x-1, view_y-1, view_w+2, view_h+2));}  //White Rectangle Border
+  if(view_border) {graphics_context_set_stroke_color(ctx, 1); graphics_draw_rect(ctx, GRect(view_x-1, view_y-1, view_w+2, view_h+2));}  //White Rectangle Border
   
   // Bring me the horizon
   graphics_context_set_stroke_color(ctx, 1); graphics_draw_line(ctx, GPoint(view_x, view_y + (int)(view_h/2)), GPoint(view_x + view_w,view_y + (int)(view_h/2)));
@@ -156,63 +161,83 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
     cos = cos_lookup(player.facing + angle); 
     ray = (RayVar){.x=player.x, .y=player.y, .dist=0};         //Shoot rays out of player's eyes.  pew pew.
     
-    bool going = true;
+    bool going = true;  // Loop until something causes you to stop
     while(going) {
+      //time_ms(&sec3, &ms3);  //1st Time Snapshot
+      //looper++;
       // Calculate distance to next X gridline in the ray's direction
-      if (cos == 0) stepX.length = 2147483647;  // If ray is vertical, will never hit next X
+      if (cos == 0) Xlen = 2147483647;  // If ray is vertical, will never hit next X
       else {
 	      Xdx = cos > 0 ? floor_int(ray.x + 1000) - ray.x : ceil_int(ray.x - 1000) - ray.x;
         Xdy = (Xdx * sin)/cos;
-        stepX.length = Xdx * Xdx + Xdy * Xdy;
-        if(stepX.length<0) stepX.length = 2147483647;  // Overflow detected so just make length the max
+        Xlen = Xdx * Xdx + Xdy * Xdy;  // Multiplying 2 32bit numbers might overflow
+        if(Xlen<0) Xlen = 2147483647;  // Overflow detected so just make length the max
       }
 
       // Calculate distance to next Y gridline in the ray's direction
-	    if (sin == 0) stepY.length = 2147483647;    // If ray is horizontal, will never hit next Y
+	    if (sin == 0) Ylen = 2147483647;    // If ray is horizontal, will never hit next Y
 	    else {
         Ydy = sin > 0 ? floor_int(ray.y + 1000) - ray.y : ceil_int(ray.y - 1000) - ray.y;
 	      Ydx = (Ydy * cos)/sin;
-        stepY.length = Ydx * Ydx + Ydy * Ydy;
-        if(stepY.length<0) stepY.length = 2147483647;  // Overflow detected so just make length the max
+        Ylen = Ydx * Ydx + Ydy * Ydy;
+        if(Ylen<0) Ylen = 2147483647;  // Overflow detected so just make length the max
       }
 
       // move ray to next step whichever is closer
-	    if(stepX.length < stepY.length) {
-        stepX.x = ray.x + Xdx;
-        stepX.y = ray.y + Xdy;
-	      stepX.hit = getmap(floor_int(stepX.x - (cos<0?1:0)), floor_int(stepX.y));
-        stepX.dist = ray.dist + sqrt_int(stepX.length);
-	      stepX.offset = stepX.y;
-        ray = stepX;
+	    if(Xlen < Ylen) {
+        ray.x += Xdx;
+        ray.y += Xdy;
+	      ray.hit = getmap(floor_int(ray.x - (cos<0?1000:0)), floor_int(ray.y));
+        ray.dist = ray.dist + sqrt_int(Xlen);
+	      ray.offset = ray.y;
       } else {
-        stepY.x = ray.x + Ydx;
-        stepY.y = ray.y + Ydy;
-        stepY.hit = getmap(floor_int(stepY.x),floor_int(stepY.y - (sin<0?1:0)));
-        stepY.dist = ray.dist + sqrt_int(stepY.length);
-	      stepY.offset = stepY.x;
-	      ray = stepY;
+        ray.x += Ydx;
+        ray.y += Ydy;
+        ray.hit = getmap(floor_int(ray.x),floor_int(ray.y - (sin<0?1000:0)));
+        ray.dist = ray.dist + sqrt_int(Ylen);
+	      ray.offset = ray.x;
 	    }
 
 	    if (ray.hit > 0) {	   // if ray hits a wall
         going = false;       // stop ray
         ray.offset = ray.offset%1000;  // Get fractional part of offset: offset is where on wall ray hits: 000(left) to 999(right)
         
-        z = (ray.dist * cos_lookup(angle)) / TRIG_MAX_RATIO;
+        z = (ray.dist * cos_lookup(angle)) / TRIG_MAX_RATIO;  //z = distance
         colbot = ((view_h/2) * (z+1000)) / z;  // y coordinate of bottom of column to draw
         coltop = colbot - ((view_h*1000) / z);   // y coordinate of top of column to draw
         
         if(colbot>=view_h) colbot=view_h-1; if(coltop<0) coltop=0;  // Make sure line isn't drawn beyond bounding box
-
+        
+        
+        
         // Draw Wall Column
         graphics_context_set_stroke_color(ctx, 1);  // Black = 0, White = 1
-        if(ray.offset<50 || ray.offset > 950) graphics_context_set_stroke_color(ctx, 0);  // Black edges on left and right 5% of block
+        if(ray.offset<50 || ray.offset > 950) graphics_context_set_stroke_color(ctx, 0);  // Black edges on left and right 5% of block (Comment this line to remove edges)
         //Note: Uncomment out line below for stripey blocks.  The "*9)%2" means 9 Stripes and 2 is every other.
+/*
         if(ray.hit==2){if(floor_int((ray.offset*9)%2000)== 0) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);}  // Stripey Blocks
         if(ray.hit==3){if(ray.offset>250 && ray.offset<750){ // If door block and if on door part
             graphics_context_set_stroke_color(ctx, 0); graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + ((colbot-coltop)/3) + view_y), GPoint((int)col + view_x,colbot + view_y));  //bottom third black
             colbot = coltop + ((colbot-coltop)/3); graphics_context_set_stroke_color(ctx, 1);  // Draw white top third
         } }
-        graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
+        */
+        //graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
+        
+        if(ray.offset<50 || ray.offset > 950){
+          graphics_context_set_stroke_color(ctx, 0);
+          graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
+        } else {
+          coltop += view_y;
+          colbot += view_y - coltop;
+
+        z=sqrt_int(z/2) / 7;  //z = 0 to 10: 0=close 10=distant
+        for(int16_t i=0; i<colbot;i++) {
+          if((i+ray.offset)%9>=z) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);
+          if(rand()%z==0) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);
+          graphics_draw_pixel(ctx, GPoint(col, i+coltop));
+        }
+        }
+        //graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
 	    }
 
       if((sin<0&&ray.y<0)||(sin>0&&ray.y>=(mapsize*1000))||(cos<0&&ray.x<0)||(cos>0&&ray.x>=(mapsize*1000))) going=false;  // stop if ray is out of bounds AND going wrong way
@@ -222,18 +247,27 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
 
   time_ms(&sec2, &ms2);  //2nd Time Snapshot
   dt = ((int32_t)1000*(int32_t)sec2 + (int32_t)ms2) - ((int32_t)1000*(int32_t)sec1 + (int32_t)ms1);  //ms between two time snapshots
+  //dt2 = ((int32_t)1000*(int32_t)sec2 + (int32_t)ms2) - ((int32_t)1000*(int32_t)sec3 + (int32_t)ms3);  //ms between two time snapshots
   
-  // Display TextBox
-  static char text[40];  //Buffer to hold text
-  snprintf(text, sizeof(text), " (%d.%d,%d.%d) %dms", (int)(floor_int(player.x)/1000),(int)(((player.x<0?(-1*player.x):player.x)%1000)/100), (int)(floor_int(player.y)/1000),(int)(((player.y<0?(-1*player.y):player.y)%1000)/100),(int)dt);  // What text to draw
-  GRect textframe = GRect(0, 0, 143, 20);  // Text Box Position and Size
-  graphics_context_set_fill_color(ctx, 0); graphics_fill_rect(ctx, textframe, 0, GCornerNone);  //Black Filled Rectangle
-  graphics_context_set_stroke_color(ctx, 1); graphics_draw_rect(ctx, textframe);                //White Rectangle Border
-  graphics_context_set_text_color(ctx, 1);  // White Text
-  graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14), textframe, GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);  //Write Text
+  //-----------------//
+  // Display TextBox //
+  //-----------------//
+  if(draw_textbox) {
+    GRect textframe = GRect(0, 0, 143, 20);  // Text Box Position and Size
+    graphics_context_set_fill_color(ctx, 0);   graphics_fill_rect(ctx, textframe, 0, GCornerNone);  //Black Solid Rectangle
+    graphics_context_set_stroke_color(ctx, 1); graphics_draw_rect(ctx, textframe);                //White Rectangle Border  
+    static char text[40];  //Buffer to hold text
+    snprintf(text, sizeof(text), " (%d.%d,%d.%d) %dms %dfps", (int)(floor_int(player.x)/1000),(int)(((player.x<0?(-1*player.x):player.x)%1000)/100), (int)(floor_int(player.y)/1000),(int)(((player.y<0?(-1*player.y):player.y)%1000)/100),(int)dt, (int)(1000/dt));  // What text to draw  
+    snprintf(text, sizeof(text), " (%d)", (int)z);
+    //snprintf(text, sizeof(text), " (%d) %dms %dms", (int)looper, (int)dt, (int)dt2);  // What text to draw  
+    graphics_context_set_text_color(ctx, 1);  // White Text
+    graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14), textframe, GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);  //Write Text
+  }
   
-  //Done?  Set a timer to start next loop
+  //Done.  Set a timer to restart loop
   timer = app_timer_register(ACCEL_STEP_MS, main_loop, NULL);
+  
+  // Perhaps clean up variables here?
 }
 
 // ------------------------------------------------------------------------ //
