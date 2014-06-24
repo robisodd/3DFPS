@@ -211,9 +211,9 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
         
         
         // Draw Wall Column
-        graphics_context_set_stroke_color(ctx, 1);  // Black = 0, White = 1
+        //graphics_context_set_stroke_color(ctx, 1);  // Black = 0, White = 1
         if(ray.offset<50 || ray.offset > 950) graphics_context_set_stroke_color(ctx, 0);  // Black edges on left and right 5% of block (Comment this line to remove edges)
-        //Note: Uncomment out line below for stripey blocks.  The "*9)%2" means 9 Stripes and 2 is every other.
+        //Note: Line below is for stripey blocks.  The "*9)%2" means 9 Stripes and 2 is every other. (2 is now 2000 due to integer math making everything x1000)
 /*
         if(ray.hit==2){if(floor_int((ray.offset*9)%2000)== 0) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);}  // Stripey Blocks
         if(ray.hit==3){if(ray.offset>250 && ray.offset<750){ // If door block and if on door part
@@ -223,22 +223,24 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
         */
         //graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
         
-        if(ray.offset<50 || ray.offset > 950){
+        if(ray.offset<50 || ray.offset > 950){  // If hit 5% edge, draw a black line border
           graphics_context_set_stroke_color(ctx, 0);
           graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
-        } else {
+        } else {  // else draw a shaded line, shaded based on distance (z)
           coltop += view_y;
           colbot += view_y - coltop;
-
-        z=sqrt_int(z/2) / 7;  //z = 0 to 10: 0=close 10=distant
-        for(int16_t i=0; i<colbot;i++) {
-          if((i+ray.offset)%9>=z) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);
-          if(rand()%z==0) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);
-          graphics_draw_pixel(ctx, GPoint(col, i+coltop));
+        
+          z -= 1000; if (z<0) z=0;  // Make everything closer (solid white without having to be nearly touching)
+          z=sqrt_int(z) / 10;       // Distance. z was 0-10000, now z = 0 to 10: 0=close 10=distant.  Square Root makes it logarithmic
+         
+          for(int16_t i=0; i<colbot;i++) {
+            if((i+coltop+(col*6))%9>=z) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);
+            //if(rand()%z==0) graphics_context_set_stroke_color(ctx, 1); else graphics_context_set_stroke_color(ctx, 0);  // Random noise blocks, further=darker
+            graphics_draw_pixel(ctx, GPoint(col, i+coltop));
+          }
         }
-        }
-        //graphics_draw_line(ctx, GPoint((int)col + view_x,coltop + view_y), GPoint((int)col + view_x,colbot + view_y));  //Draw the line
-	    }
+        
+	    } // End if hit
 
       if((sin<0&&ray.y<0)||(sin>0&&ray.y>=(mapsize*1000))||(cos<0&&ray.x<0)||(cos>0&&ray.x>=(mapsize*1000))) going=false;  // stop if ray is out of bounds AND going wrong way
       if(ray.dist > range) going=false;  // Stop ray after traveling too far
@@ -247,7 +249,6 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
 
   time_ms(&sec2, &ms2);  //2nd Time Snapshot
   dt = ((int32_t)1000*(int32_t)sec2 + (int32_t)ms2) - ((int32_t)1000*(int32_t)sec1 + (int32_t)ms1);  //ms between two time snapshots
-  //dt2 = ((int32_t)1000*(int32_t)sec2 + (int32_t)ms2) - ((int32_t)1000*(int32_t)sec3 + (int32_t)ms3);  //ms between two time snapshots
   
   //-----------------//
   // Display TextBox //
@@ -258,8 +259,6 @@ static void graphics_layer_update_proc(Layer *me, GContext *ctx) {
     graphics_context_set_stroke_color(ctx, 1); graphics_draw_rect(ctx, textframe);                //White Rectangle Border  
     static char text[40];  //Buffer to hold text
     snprintf(text, sizeof(text), " (%d.%d,%d.%d) %dms %dfps", (int)(floor_int(player.x)/1000),(int)(((player.x<0?(-1*player.x):player.x)%1000)/100), (int)(floor_int(player.y)/1000),(int)(((player.y<0?(-1*player.y):player.y)%1000)/100),(int)dt, (int)(1000/dt));  // What text to draw  
-    snprintf(text, sizeof(text), " (%d)", (int)z);
-    //snprintf(text, sizeof(text), " (%d) %dms %dms", (int)looper, (int)dt, (int)dt2);  // What text to draw  
     graphics_context_set_text_color(ctx, 1);  // White Text
     graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14), textframe, GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);  //Write Text
   }
